@@ -1,0 +1,8 @@
+signvenv/
+action.h5
+action_best.h5
+MP_Data/
+Logs/
+__pycache__/
+*.pyc
+.vscode/
