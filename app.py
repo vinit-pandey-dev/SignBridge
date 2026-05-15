@@ -251,9 +251,10 @@ if mode == "🖐️ Sign to Speech":
     if start_button:
         cv2, mp, pyttsx3, sr, Sequential, LSTM, Dense, Bidirectional, BatchNormalization = get_libraries()
         model, actions = load_model()
-        mp_holistic = mp.solutions.holistic
-        mp_drawing  = mp.solutions.drawing_utils
+        import mediapipe as mp
 
+        mp_holistic = mp.solutions.holistic
+        mp_drawing = mp.solutions.drawing_utils
         sequence = []
         sentence = []
         threshold = 0.85
@@ -263,7 +264,8 @@ if mode == "🖐️ Sign to Speech":
         COOLDOWN_FRAMES    = 20
         cooldown_counter   = 0
 
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        
         with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
             while cap.isOpened():
                 ret, frame = cap.read()
