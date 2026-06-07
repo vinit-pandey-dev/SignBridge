@@ -5,16 +5,22 @@ import speech_recognition as sr
 import numpy as np
 
 # ============================================================
-# SIGNBRIDGE - SPEECH TO SIGN (FIXED - No Freezing)
-# Fix: cv2.imshow only called AFTER user presses Enter
-#      No window open during input() call
+# SIGNBRIDGE - SPEECH TO SIGN (IMPROVED)
+# Changes:
+#   1. Alphabet delay 0.5s → 0.2s (faster)
+#   2. Word ke baad blank "space" frame
+#   3. Video FPS speed up (30ms → 20ms)
+#   4. Intro screen removed (faster start)
+#   5. Letter highlight animation added
+#   6. Word progress bar added
 # ============================================================
 
 ASSETS_PATH = "Assets"
 ALPHABET_PATH = os.path.join(ASSETS_PATH, "Alphabet")
-DELAY_BETWEEN_ALPHABETS = 0.5
-DELAY_BETWEEN_WORDS = 0.8
-VIDEO_FPS_DELAY = 30
+DELAY_BETWEEN_ALPHABETS = 0.2   # FIX 1: 0.5 → 0.2 (faster letters)
+DELAY_BETWEEN_WORDS = 0.5       # Word ke baad gap
+SPACE_FRAME_DURATION = 500      # ms — blank frame between words
+VIDEO_FPS_DELAY = 20            # FIX 3: 30 → 20ms (faster video)
 WINDOW_NAME = "SignBridge - Speech to Sign"
 
 # ============================================================
@@ -55,6 +61,23 @@ def draw_overlay(frame, top_text, bottom_text, mode="word"):
     return frame
 
 # ============================================================
+# FIX 2: SPACE FRAME between words
+# ============================================================
+def show_word_space(word_label):
+    """Black frame with '|' separator shown between words"""
+    space = np.ones((400, 600, 3), dtype='uint8') * 15
+    # Word done indicator
+    cv2.putText(space, f"[ {word_label.upper()} ]", (170, 170),
+               cv2.FONT_HERSHEY_SIMPLEX, 1.2, (60, 60, 60), 2, cv2.LINE_AA)
+    # Space symbol
+    cv2.putText(space, "___", (250, 240),
+               cv2.FONT_HERSHEY_SIMPLEX, 1.5, (80, 80, 80), 2, cv2.LINE_AA)
+    cv2.putText(space, "NEXT WORD", (195, 310),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (50, 50, 50), 1, cv2.LINE_AA)
+    cv2.imshow(WINDOW_NAME, space)
+    cv2.waitKey(SPACE_FRAME_DURATION)
+
+# ============================================================
 # PLAY VIDEO
 # ============================================================
 def play_video(video_path, label, mode="word"):
@@ -62,26 +85,50 @@ def play_video(video_path, label, mode="word"):
     if not cap.isOpened():
         print(f"  [ERROR] Cannot open: {video_path}")
         return
+    
+    # Asli Video FPS nikaalein
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0: 
+        fps = 30.0
+    
+    frame_duration = 1.0 / fps  
+    print(f"  Playing: {label} (FPS: {fps})")
+    
+    start_time = time.time()
+    frame_counter = 0
 
-    print(f"  Playing: {label}")
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
+        
+        frame_counter += 1
+        expected_time = start_time + (frame_counter * frame_duration)
+        current_time = time.time()
+        
+        # LAG CONTROL: Agar frame late hai toh skip karo
+        if current_time > expected_time + 0.03:
+            continue
+            
         frame = draw_overlay(frame, f"Signing: {label}", label, mode)
         cv2.imshow(WINDOW_NAME, frame)
-        if cv2.waitKey(VIDEO_FPS_DELAY) & 0xFF == ord('q'):
-            cap.release()
-            return
+        
+        time_to_wait = expected_time - time.time()
+        if time_to_wait > 0:
+            delay = max(1, int(time_to_wait * 1000))
+            if cv2.waitKey(delay) & 0xFF == ord('q'):
+                break
+        else:
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+                
     cap.release()
-
 # ============================================================
 # SHOW IMAGE
 # ============================================================
-def show_image(image_path, label, duration=1.0):
+def show_image(image_path, label, duration=0.8):  # FIX: 1.0 → 0.8s
     frame = cv2.imread(image_path)
     if frame is None:
-        print(f"  [ERROR] Cannot load image: {image_path}")
         return
     frame = draw_overlay(frame, f"Letter: {label}", label, "letter")
     cv2.imshow(WINDOW_NAME, frame)
@@ -91,32 +138,88 @@ def show_image(image_path, label, duration=1.0):
             return
 
 # ============================================================
-# PLAY LETTER (video or image)
+# PLAY LETTER with highlight animation
 # ============================================================
-def play_letter(letter):
+def play_letter(letter, word, letter_index):
+    """Play letter with word progress shown at bottom"""
     path = find_letter_asset(letter)
+
     if path is None:
-        print(f"  [SKIP] No asset for letter: {letter}")
+        # Show text frame if no asset
         blank = np.ones((400, 500, 3), dtype='uint8') * 50
-        cv2.putText(blank, letter.upper(), (170, 260),
+        cv2.putText(blank, letter.upper(), (170, 230),
                    cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 100, 255), 12, cv2.LINE_AA)
-        draw_overlay(blank, f"Letter: {letter.upper()} (No video)", letter.upper(), "letter")
+        # Word progress at bottom
+        _draw_word_progress(blank, word, letter_index)
         cv2.imshow(WINDOW_NAME, blank)
         cv2.waitKey(int(DELAY_BETWEEN_ALPHABETS * 1000))
         return
 
     ext = os.path.splitext(path)[1].lower()
+
     if ext in ['.mp4', '.avi', '.mov']:
-        play_video(path, letter.upper(), mode="letter")
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            return
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            # Draw overlay
+            draw_overlay(frame, f"Spelling: {word.upper()}", letter.upper(), "letter")
+            # Word progress bar
+            _draw_word_progress(frame, word, letter_index)
+            cv2.imshow(WINDOW_NAME, frame)
+            if cv2.waitKey(VIDEO_FPS_DELAY) & 0xFF == ord('q'):
+                cap.release()
+                return
+        cap.release()
     else:
-        show_image(path, letter.upper(), duration=1.0)
+        frame = cv2.imread(path)
+        if frame is not None:
+            draw_overlay(frame, f"Spelling: {word.upper()}", letter.upper(), "letter")
+            _draw_word_progress(frame, word, letter_index)
+            cv2.imshow(WINDOW_NAME, frame)
+            start = time.time()
+            while time.time() - start < 0.8:
+                if cv2.waitKey(30) & 0xFF == ord('q'):
+                    return
 
     time.sleep(DELAY_BETWEEN_ALPHABETS)
+
+def _draw_word_progress(frame, word, current_index):
+    """FIX 5: Show word with current letter highlighted at bottom"""
+    h, w = frame.shape[:2]
+    # Progress bar background
+    cv2.rectangle(frame, (0, h - 90), (w, h - 45), (30, 30, 30), -1)
+
+    # Draw each letter — current one highlighted
+    total = len(word)
+    letter_w = min(40, (w - 40) // max(total, 1))
+    start_x = (w - total * letter_w) // 2
+
+    for i, ch in enumerate(word.upper()):
+        x = start_x + i * letter_w
+        y = h - 55
+        if i == current_index:
+            # Current letter — bright highlight
+            cv2.rectangle(frame, (x - 3, y - 25), (x + letter_w - 5, y + 5),
+                         (0, 165, 255), -1)
+            cv2.putText(frame, ch, (x + 2, y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        elif i < current_index:
+            # Done letters — dim green
+            cv2.putText(frame, ch, (x + 2, y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 150, 80), 1)
+        else:
+            # Pending letters — grey
+            cv2.putText(frame, ch, (x + 2, y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (80, 80, 80), 1)
 
 # ============================================================
 # PROCESS WORD: Smart lookup
 # ============================================================
-def process_word(word):
+def process_word(word, word_index, total_words):
     clean = ''.join(c for c in word if c.isalpha())
     if not clean:
         return
@@ -126,24 +229,26 @@ def process_word(word):
     if path:
         print(f"\n  [WORD] Video found for '{clean}'")
         play_video(path, clean.capitalize(), mode="word")
-        time.sleep(DELAY_BETWEEN_WORDS)
     else:
-        print(f"\n  [SPELL] No video for '{clean}' → Finger spelling: {clean.upper()}")
+        print(f"\n  [SPELL] Finger spelling: {clean.upper()}")
 
-        # Show "Spelling: WORD" intro
+        # FIX 4: Removed long intro — just quick label
         intro = np.ones((400, 600, 3), dtype='uint8') * 40
-        cv2.putText(intro, "Spelling:", (160, 150),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
-        cv2.putText(intro, clean.upper(), (int(300 - len(clean) * 28), 270),
-                   cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 165, 255), 4, cv2.LINE_AA)
+        cv2.putText(intro, clean.upper(),
+                   (int(300 - len(clean) * 20), 230),
+                   cv2.FONT_HERSHEY_SIMPLEX, 2.2, (0, 165, 255), 4, cv2.LINE_AA)
+        cv2.putText(intro, "Spelling...", (220, 290),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 150), 1)
         cv2.imshow(WINDOW_NAME, intro)
-        cv2.waitKey(1200)
+        cv2.waitKey(600)  # FIX 4: 1200 → 600ms
 
-        for letter in clean:
+        for i, letter in enumerate(clean):
             print(f"    -> {letter.upper()}")
-            play_letter(letter)
+            play_letter(letter, clean, i)
 
-        time.sleep(DELAY_BETWEEN_WORDS)
+    # FIX 2: Show space frame between words (not after last word)
+    if word_index < total_words - 1:
+        show_word_space(clean)
 
 # ============================================================
 # PROCESS FULL SENTENCE
@@ -154,33 +259,32 @@ def process_sentence(text):
     print(f"{'='*45}")
 
     words = text.strip().split()
+    total = len(words)
 
-    # Show sentence overview screen
+    # Quick overview — shorter wait
     overview = np.ones((400, 700, 3), dtype='uint8') * 40
     cv2.putText(overview, "You said:", (30, 100),
                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    display_text = f'"{text}"' if len(text) < 30 else f'"{text[:28]}..."'
-    cv2.putText(overview, display_text, (30, 180),
+    display_text = f'"{text}"' if len(text) < 32 else f'"{text[:30]}..."'
+    cv2.putText(overview, display_text, (30, 175),
                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 220, 100), 2, cv2.LINE_AA)
-    cv2.putText(overview, f"Words: {len(words)}", (30, 260),
+    cv2.putText(overview, f"{total} word{'s' if total > 1 else ''}", (30, 250),
                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 180, 50), 2)
-    cv2.putText(overview, "Starting...", (30, 330),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
     cv2.imshow(WINDOW_NAME, overview)
-    cv2.waitKey(1800)
+    cv2.waitKey(1200)  # FIX 4: 1800 → 1200ms
 
     for i, word in enumerate(words):
-        print(f"\n  Word {i+1}/{len(words)}: '{word}'")
-        process_word(word)
+        print(f"\n  Word {i+1}/{total}: '{word}'")
+        process_word(word, i, total)
 
     # Done screen
     done = np.ones((400, 600, 3), dtype='uint8') * 40
-    cv2.putText(done, "Done!", (200, 200),
+    cv2.putText(done, "Done!", (195, 200),
                cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 220, 100), 4, cv2.LINE_AA)
     cv2.putText(done, "Press Enter to speak again", (70, 290),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 150), 2)
     cv2.imshow(WINDOW_NAME, done)
-    cv2.waitKey(1500)
+    cv2.waitKey(1200)
 
 # ============================================================
 # LISTEN via Microphone
@@ -203,13 +307,11 @@ def listen():
             print("  Could not understand audio.")
             return None
         except sr.RequestError:
-            print("  Internet required for Google Speech Recognition.")
+            print("  Internet required.")
             return None
 
 # ============================================================
 # MAIN
-# KEY FIX: Window created ONCE at start
-#          input() called in terminal — no conflict with OpenCV
 # ============================================================
 if __name__ == "__main__":
     os.makedirs(ASSETS_PATH, exist_ok=True)
@@ -218,19 +320,13 @@ if __name__ == "__main__":
     print("=" * 45)
     print("  SignBridge - Speech to Sign")
     print("=" * 45)
-    print(f"  Assets      : {ASSETS_PATH}/")
-    print(f"  Alphabet    : {ALPHABET_PATH}/")
-    print(f"  Letter delay: {DELAY_BETWEEN_ALPHABETS}s")
-    print(f"  Word delay  : {DELAY_BETWEEN_WORDS}s")
+    print(f"  Letter delay : {DELAY_BETWEEN_ALPHABETS}s")
+    print(f"  Word gap     : {SPACE_FRAME_DURATION}ms")
+    print(f"  Video speed  : {VIDEO_FPS_DELAY}ms/frame")
     print("=" * 45)
-    print("  Controls:")
-    print("  - Press Enter       -> Mic input")
-    print("  - Type a sentence   -> Manual input")
-    print("  - Type 'q'          -> Quit")
-    print("  - Press 'q' in video window -> Skip")
+    print("  Enter → Mic | Type → Manual | q → Quit")
     print("=" * 45)
 
-    # KEY FIX: Create window ONCE (non-blocking)
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WINDOW_NAME, 700, 500)
 
@@ -240,10 +336,10 @@ if __name__ == "__main__":
                cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 220, 100), 4, cv2.LINE_AA)
     cv2.putText(welcome, "Speech to Sign Translator", (130, 230),
                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    cv2.putText(welcome, "Go to terminal and press Enter!", (120, 310),
+    cv2.putText(welcome, "Go to terminal and press Enter!", (110, 305),
                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
     cv2.imshow(WINDOW_NAME, welcome)
-    cv2.waitKey(1)  # 1ms only — just to render, not block
+    cv2.waitKey(1)
 
     while True:
         print()
@@ -259,6 +355,6 @@ if __name__ == "__main__":
         else:
             process_sentence(user_input.lower())
 
-        cv2.waitKey(1)  # Keep window alive
+        cv2.waitKey(1)
 
     cv2.destroyAllWindows()
