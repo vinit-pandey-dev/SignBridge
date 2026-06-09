@@ -19,7 +19,12 @@ from tensorflow.keras.layers import LSTM, Dense, Bidirectional, Dropout, BatchNo
 # --- 1. SETUP ---
 mp_holistic = mp.solutions.holistic
 mp_drawing = mp.solutions.drawing_utils
-actions = np.array(['Hello', 'Thanks', 'ILoveYou'])
+actions = np.array([
+    'Yes',
+    'Please',
+    'Thanks'
+])
+
 
 # ---- HELPER FUNCTIONS ----
 def mediapipe_detection(image, model):
@@ -83,30 +88,39 @@ def speak(text):
 model = Sequential([
     Bidirectional(LSTM(64, return_sequences=True, activation='relu'), input_shape=(30, 1662)),
     BatchNormalization(),
-    # Dropout not needed at inference, but layers must match training
+    Dropout(0.2),
+
     Bidirectional(LSTM(128, return_sequences=True, activation='relu')),
     BatchNormalization(),
+    Dropout(0.2),
+
     Bidirectional(LSTM(64, return_sequences=False, activation='relu')),
     BatchNormalization(),
+    Dropout(0.2),
+
     Dense(128, activation='relu'),
+    Dropout(0.3),
+
     Dense(64, activation='relu'),
     Dense(32, activation='relu'),
+
     Dense(actions.shape[0], activation='softmax')
 ])
-model.load_weights('action.h5')
+
+model.load_weights('action_best.h5')
 print("Model loaded successfully!")
 
 # --- 3. DETECTION VARIABLES ---
 sequence = []
 sentence = []
-threshold = 0.85           # Confidence threshold (higher = more strict)
+threshold = 0.85 # Confidence threshold (higher = more strict)
 
 # ============================================================
 # FIX 2: PREDICTION STABILITY - Debounce Counter
 # A word is only added if it's predicted consistently
 # for CONSECUTIVE_FRAMES in a row (not just once).
 # ============================================================
-CONSECUTIVE_FRAMES = 5     # Word must be stable for 5 consecutive predictions
+CONSECUTIVE_FRAMES = 5    # Word must be stable for 5 consecutive predictions
 consecutive_count = 0
 last_prediction = None
 
@@ -119,7 +133,7 @@ COOLDOWN_FRAMES = 20
 cooldown_counter = 0
 
 # --- 4. REAL-TIME LOOP ---
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(2, cv2.CAP_DSHOW)
 print("Starting real-time detection... Press 'q' to quit, 'c' to clear sentence.")
 
 with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:

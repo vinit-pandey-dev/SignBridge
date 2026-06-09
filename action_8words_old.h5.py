@@ -26,9 +26,14 @@ def get_libraries():
 @st.cache_resource
 def load_model():
     cv2, mp, pyttsx3, sr, Sequential, LSTM, Dense, Bidirectional, BatchNormalization = get_libraries()
-    actions = np.array(['Hello', 'Thanks', 'ILoveYou'])
+#     actions = np.array([
+#     'Yes',
+#     'Please',
+#     'Thanks',
+#     'ILoveYou'
+# ])
     model = Sequential([
-        Bidirectional(LSTM(64, return_sequences=True, activation='relu'), input_shape=(30, 1662)),
+        Bidirectional(LSTM(64, return_sequences=True, activation='relu'), input_shape=(60, 1662)),
         BatchNormalization(),
         Bidirectional(LSTM(128, return_sequences=True, activation='relu')),
         BatchNormalization(),
@@ -37,6 +42,9 @@ def load_model():
         Dense(128, activation='relu'),
         Dense(64, activation='relu'),
         Dense(32, activation='relu'),
+        print("Actions:", actions)
+        print("Number of actions:", actions.shape[0])
+        print("Y shape:", y.shape)
         Dense(actions.shape[0], activation='softmax')
     ])
     if os.path.exists('action.h5'):
@@ -255,16 +263,22 @@ if mode == "🖐️ Sign to Speech":
 
         mp_holistic = mp.solutions.holistic
         mp_drawing = mp.solutions.drawing_utils
+        actions = np.array([
+    'Yes',
+    'Please',
+    'Thanks',
+    'ILoveYou'
+])
         sequence = []
         sentence = []
-        threshold = 0.85
+        threshold = 0.95
         CONSECUTIVE_FRAMES = 5
         consecutive_count  = 0
         last_prediction    = None
         COOLDOWN_FRAMES    = 20
         cooldown_counter   = 0
 
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
         
         with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
             while cap.isOpened():
@@ -281,9 +295,9 @@ if mode == "🖐️ Sign to Speech":
                 if results.left_hand_landmarks or results.right_hand_landmarks:
                     keypoints = extract_keypoints(results)
                     sequence.append(keypoints)
-                    sequence = sequence[-30:]
+                    sequence = sequence[-60:]
 
-                    if len(sequence) == 30:
+                    if len(sequence) == 60:
                         res          = model.predict(np.expand_dims(sequence, axis=0), verbose=0)[0]
                         predicted_idx = np.argmax(res)
                         confidence   = float(res[predicted_idx])
