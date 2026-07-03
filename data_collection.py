@@ -8,9 +8,15 @@ mp_holistic = mp.solutions.holistic
 mp_drawing = mp.solutions.drawing_utils
 
 DATA_PATH = os.path.join('MP_Data')
-actions = np.array(['Hello', 'Thanks', 'ILoveYou'])
-no_sequences = 60
-sequence_length = 30
+actions = np.array(['Please'])
+
+# actions = np.array([
+#     'Yes',
+#     'Please',
+#     'Thanks'
+# ])
+no_sequences = 100
+sequence_length = 60
 
 def mediapipe_detection(image, model):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -39,11 +45,9 @@ for action in actions:
 
 print(f"Collecting {no_sequences} sequences per action for: {list(actions)}")
 
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+cap = cv2.VideoCapture(2,cv2.CAP_DSHOW)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-cap.set(cv2.CAP_PROP_BRIGHTNESS, 150)
-cap.set(cv2.CAP_PROP_EXPOSURE, -5)
 
 with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
     for action in actions:
@@ -64,7 +68,7 @@ with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=
                     cv2.putText(image, f'Action: {action} | Video: {sequence+1}/{no_sequences}', (15, 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
                     cv2.imshow('Data Collection', image)
-                    cv2.waitKey(2500)
+                    cv2.waitKey(3000)
                 else:
                     cv2.putText(image, f'Recording: {action} | Video: {sequence+1}/{no_sequences} | Frame: {frame_num}', (15, 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
@@ -74,7 +78,7 @@ with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=
                 npy_path = os.path.join(DATA_PATH, action, str(sequence), str(frame_num))
                 np.save(npy_path, keypoints)
 
-                if cv2.waitKey(10) & 0xFF == ord('q'):
+                if cv2.waitKey(50) & 0xFF == ord('q'):
                     cap.release()
                     cv2.destroyAllWindows()
                     exit()
